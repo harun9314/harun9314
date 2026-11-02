@@ -1,0 +1,35 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function member(farmId) {
+      return signedIn() &&
+        exists(/databases/$(database)/documents/farms/$(farmId)/members/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/farms/$(farmId)/members/$(request.auth.uid)).data.status == "active";
+    }
+    function role(farmId) {
+      return get(/databases/$(database)/documents/farms/$(farmId)/members/$(request.auth.uid)).data.role;
+    }
+    function owner(farmId) { return member(farmId) && role(farmId) == "owner"; }
+    match /users/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow create, update: if signedIn() && request.auth.uid == uid;
+      allow delete: if false;
+    }
+    match /farms/{farmId} {
+      allow read: if member(farmId);
+      allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow update, delete: if owner(farmId);
+      match /members/{uid} {
+        allow read: if member(farmId);
+        allow create, update, delete: if owner(farmId);
+      }
+      match /{collection}/{docId} {
+        allow read: if member(farmId);
+        allow create, update: if member(farmId) &&
+          (role(farmId) == "owner" || role(farmId) == "manager");
+        allow delete: if owner(farmId);
+      }
+    }
+  }
+}
